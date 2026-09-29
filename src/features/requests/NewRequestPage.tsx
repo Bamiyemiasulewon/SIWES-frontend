@@ -66,8 +66,6 @@ export default function NewRequestPage() {
     return <ErrorState status={err?.response?.status} message={err?.message ?? 'Failed to load departments for the request form.'} onRetry={() => void departmentsQuery.refetch()} />;
   }
 
-  const departments = departmentsQuery.data ?? [];
-
   return (
     <>
       <Group justify="space-between" align="flex-start" mb="lg">
