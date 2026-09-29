@@ -1,16 +1,17 @@
 import { Alert, Button, Card, Divider, Grid, Group, NativeSelect, SegmentedControl, Stack, Text, Textarea, TextInput } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import { IconInfoCircle } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
+import { ErrorState } from '../../components/common/StateViews';
 import type { Department } from '../../types';
 
 export default function NewRequestPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [type, setType] = useState<'maintenance' | 'complaint'>('maintenance');
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [form, setForm] = useState({
     category: '',
     building: '',
@@ -22,9 +23,15 @@ export default function NewRequestPage() {
     is_anonymous: false,
   });
 
-  useEffect(() => {
-    api.get<{ items: Department[] }>('/departments').then((res) => setDepartments(res.data.items ?? [])).catch(() => undefined);
-  }, []);
+  const departmentsQuery = useQuery({
+    queryKey: ['departments-for-request'],
+    queryFn: async () => {
+      console.log('[API]', '/departments', 'request');
+      const res = await api.get<{ items: Department[] }>('/departments');
+      console.log('[API]', '/departments', 'status', res.status);
+      return res.data.items ?? [];
+    },
+  });
 
   const isStaff = user?.role === 'staff';
 
@@ -36,16 +43,30 @@ export default function NewRequestPage() {
       description: form.description,
       priority: form.priority,
       is_anonymous: form.is_anonymous,
-      department_id: user?.department_id ?? departments[0]?.id,
+      department_id: user?.department_id ?? departmentsQuery.data?.[0]?.id,
     };
     if (type === 'maintenance') {
       Object.assign(payload, { building: form.building, room: form.room });
     } else {
       if (form.course_code) payload.course_code = form.course_code;
     }
-    await api.post('/requests', payload);
+
+    console.log('[API]', '/requests', 'request', payload);
+    const res = await api.post('/requests', payload);
+    console.log('[API]', '/requests', 'status', res.status);
     navigate('/requests');
   };
+
+  if (departmentsQuery.isLoading) {
+    return <Text c="dimmed">Loading request form…</Text>;
+  }
+
+  if (departmentsQuery.isError) {
+    const err = departmentsQuery.error as { response?: { status?: number }; message?: string };
+    return <ErrorState status={err?.response?.status} message={err?.message ?? 'Failed to load departments for the request form.'} onRetry={() => void departmentsQuery.refetch()} />;
+  }
+
+  const departments = departmentsQuery.data ?? [];
 
   return (
     <>
@@ -70,8 +91,8 @@ export default function NewRequestPage() {
               {type === 'maintenance' ? (
                 <>
                   <Grid>
-                    <Grid.Col span={6}><NativeSelect label="Category" data={['electrical','plumbing','lab_equipment','hostel','furniture','other']} value={form.category} onChange={(e) => setForm({ ...form, category: e.currentTarget.value })} /></Grid.Col>
-                    <Grid.Col span={6}><NativeSelect label="Priority" data={['low','medium','high','critical']} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.currentTarget.value })} /></Grid.Col>
+                    <Grid.Col span={6}><NativeSelect label="Category" data={['electrical', 'plumbing', 'lab_equipment', 'hostel', 'furniture', 'other']} value={form.category} onChange={(e) => setForm({ ...form, category: e.currentTarget.value })} /></Grid.Col>
+                    <Grid.Col span={6}><NativeSelect label="Priority" data={['low', 'medium', 'high', 'critical']} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.currentTarget.value })} /></Grid.Col>
                     <Grid.Col span={6}><TextInput label="Building" value={form.building} onChange={(e) => setForm({ ...form, building: e.currentTarget.value })} /></Grid.Col>
                     <Grid.Col span={6}><TextInput label="Room" value={form.room} onChange={(e) => setForm({ ...form, room: e.currentTarget.value })} /></Grid.Col>
                   </Grid>
@@ -79,7 +100,7 @@ export default function NewRequestPage() {
               ) : (
                 <>
                   <Grid>
-                    <Grid.Col span={6}><NativeSelect label="Category" data={['results','registration','fees','hostel','lecturer_conduct','other']} value={form.category} onChange={(e) => setForm({ ...form, category: e.currentTarget.value })} /></Grid.Col>
+                    <Grid.Col span={6}><NativeSelect label="Category" data={['results', 'registration', 'fees', 'hostel', 'lecturer_conduct', 'other']} value={form.category} onChange={(e) => setForm({ ...form, category: e.currentTarget.value })} /></Grid.Col>
                     <Grid.Col span={6}><TextInput label="Course code" value={form.course_code} onChange={(e) => setForm({ ...form, course_code: e.currentTarget.value })} /></Grid.Col>
                   </Grid>
                   {form.category === 'lecturer_conduct' && (

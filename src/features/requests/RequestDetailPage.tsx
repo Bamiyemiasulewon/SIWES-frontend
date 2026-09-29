@@ -1,24 +1,54 @@
 import { Alert, Badge, Button, Card, Divider, Group, Stack, Text } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
+import { EmptyState, ErrorState } from '../../components/common/StateViews';
 import type { HistoryEntry, RequestItem } from '../../types';
 
 export default function RequestDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [request, setRequest] = useState<RequestItem | null>(null);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
-  useEffect(() => {
-    if (!id) return;
-    api.get<{ request: RequestItem }>(`/requests/${id}`).then((res) => setRequest(res.data.request));
-    api.get<{ items: HistoryEntry[] }>(`/requests/${id}/history`).then((res) => setHistory(res.data.items ?? []));
-  }, [id]);
+  const requestQuery = useQuery({
+    queryKey: ['request', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const url = `/requests/${id}`;
+      console.log('[API]', url, 'request');
+      const res = await api.get<{ request: RequestItem }>(url);
+      console.log('[API]', url, 'status', res.status);
+      return res.data.request;
+    },
+  });
 
-  if (!request) return null;
+  const historyQuery = useQuery({
+    queryKey: ['request-history', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const url = `/requests/${id}/history`;
+      console.log('[API]', url, 'request');
+      const res = await api.get<{ items: HistoryEntry[] }>(url);
+      console.log('[API]', url, 'status', res.status);
+      return res.data.items ?? [];
+    },
+  });
 
+  if (requestQuery.isLoading || historyQuery.isLoading) {
+    return <Text c="dimmed">Loading request details…</Text>;
+  }
+
+  if (requestQuery.isError) {
+    const err = requestQuery.error as { response?: { status?: number }; message?: string };
+    return <ErrorState status={err?.response?.status} message={err?.message ?? 'Failed to load request details.'} onRetry={() => void requestQuery.refetch()} />;
+  }
+
+  if (!requestQuery.data) {
+    return <EmptyState title="Request not found" description="This request is not available from the API." />;
+  }
+
+  const request = requestQuery.data;
+  const history = historyQuery.data ?? [];
   const isOwner = user?.id === request.created_by;
 
   return (
@@ -67,14 +97,18 @@ export default function RequestDetailPage() {
 
           <Card withBorder radius={6} p="lg">
             <Text fw={600}>History</Text>
-            <Stack mt="md">
-              {history.map((entry) => (
-                <div key={entry.id}>
-                  <Text size="sm" fw={500}>{entry.field_changed}</Text>
-                  <Text size="xs" c="dimmed">{entry.note ?? 'Updated'} </Text>
-                </div>
-              ))}
-            </Stack>
+            {history.length ? (
+              <Stack mt="md">
+                {history.map((entry) => (
+                  <div key={entry.id}>
+                    <Text size="sm" fw={500}>{entry.field_changed}</Text>
+                    <Text size="xs" c="dimmed">{entry.note ?? 'Updated'}</Text>
+                  </div>
+                ))}
+              </Stack>
+            ) : (
+              <Text c="dimmed" mt="md">No history returned by the API.</Text>
+            )}
           </Card>
         </Stack>
       </div>

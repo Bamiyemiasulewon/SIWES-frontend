@@ -1,41 +1,45 @@
-import { Badge, Button, Card, Group, Table, Text, Select } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { Badge, Button, Card, Group, Select, Table, Text } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { EmptyState, ErrorState } from '../../components/common/StateViews';
 import type { PaginationResponse, RequestItem } from '../../types';
 
-const statuses = ['submitted','assigned','in_progress','resolved','reopened','closed'];
-const types = ['maintenance','complaint'];
+const statuses = ['submitted', 'assigned', 'in_progress', 'resolved', 'reopened', 'closed'];
+const types = ['maintenance', 'complaint'];
 
 export default function RequestsPage() {
   const navigate = useNavigate();
-  const [items, setItems] = useState<RequestItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    if (typeFilter !== 'all') params.set('type', typeFilter);
-    setLoading(true);
-    api.get<PaginationResponse<RequestItem>>(`/requests?${params.toString()}`)
-      .then((res) => setItems(res.data.items ?? []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }, [statusFilter, typeFilter]);
+  const params = new URLSearchParams();
+  if (statusFilter !== 'all') params.set('status', statusFilter);
+  if (typeFilter !== 'all') params.set('type', typeFilter);
+  const query = params.toString();
 
-  const rows = items.map((item) => (
-    <Table.Tr key={item.id} onClick={() => navigate(`/requests/${item.id}`)} style={{ cursor: 'pointer' }}>
-      <Table.Td>{item.id}</Table.Td>
-      <Table.Td>{item.title}</Table.Td>
-      <Table.Td>{item.type}</Table.Td>
-      <Table.Td>{item.category}</Table.Td>
-      <Table.Td><Badge color={item.status === 'resolved' ? 'green' : item.status === 'assigned' ? 'blue' : item.status === 'in_progress' ? 'yellow' : item.status === 'reopened' ? 'orange' : item.status === 'closed' ? 'gray' : 'gray'}>{item.status}</Badge></Table.Td>
-      <Table.Td>{item.priority}</Table.Td>
-      <Table.Td>{new Date(item.updated_at).toLocaleDateString()}</Table.Td>
-    </Table.Tr>
-  ));
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['requests', query],
+    queryFn: async () => {
+      const url = `/requests${query ? `?${query}` : ''}`;
+      console.log('[API]', url, 'request');
+      const res = await api.get<PaginationResponse<RequestItem>>(url);
+      console.log('[API]', url, 'status', res.status);
+      return res.data.items ?? [];
+    },
+  });
+
+  if (isLoading) {
+    return <Text c="dimmed">Loading requests…</Text>;
+  }
+
+  if (isError) {
+    const err = error as { response?: { status?: number }; message?: string };
+    return <ErrorState status={err?.response?.status} message={err?.message ?? 'Failed to load requests.'} onRetry={() => void refetch()} />;
+  }
+
+  const items = data ?? [];
 
   return (
     <>
@@ -49,13 +53,11 @@ export default function RequestsPage() {
 
       <Card withBorder p="md" radius={6}>
         <Group gap="md" mb="md">
-          <Select label="Status" data={[{value:'all', label:'All'}, ...statuses.map((status) => ({value: status, label: status}))]} value={statusFilter} onChange={(value) => setStatusFilter(value ?? 'all')} />
-          <Select label="Type" data={[{value:'all', label:'All'}, ...types.map((type) => ({value: type, label: type}))]} value={typeFilter} onChange={(value) => setTypeFilter(value ?? 'all')} />
+          <Select label="Status" data={[{ value: 'all', label: 'All' }, ...statuses.map((status) => ({ value: status, label: status }))]} value={statusFilter} onChange={(value) => setStatusFilter(value ?? 'all')} />
+          <Select label="Type" data={[{ value: 'all', label: 'All' }, ...types.map((type) => ({ value: type, label: type }))]} value={typeFilter} onChange={(value) => setTypeFilter(value ?? 'all')} />
         </Group>
 
-        {loading ? (
-          <Text c="dimmed">Loading requests...</Text>
-        ) : (
+        {items.length ? (
           <Table striped highlightOnHover>
             <Table.Thead>
               <Table.Tr>
@@ -68,8 +70,22 @@ export default function RequestsPage() {
                 <Table.Th>Last updated</Table.Th>
               </Table.Tr>
             </Table.Thead>
-            <Table.Tbody>{rows}</Table.Tbody>
+            <Table.Tbody>
+              {items.map((item) => (
+                <Table.Tr key={item.id} onClick={() => navigate(`/requests/${item.id}`)} style={{ cursor: 'pointer' }}>
+                  <Table.Td>{item.id}</Table.Td>
+                  <Table.Td>{item.title}</Table.Td>
+                  <Table.Td>{item.type}</Table.Td>
+                  <Table.Td>{item.category ?? 'No category'}</Table.Td>
+                  <Table.Td><Badge color={item.status === 'resolved' ? 'green' : item.status === 'assigned' ? 'blue' : item.status === 'in_progress' ? 'yellow' : item.status === 'reopened' ? 'orange' : item.status === 'closed' ? 'gray' : 'gray'}>{item.status}</Badge></Table.Td>
+                  <Table.Td>{item.priority ?? 'No priority'}</Table.Td>
+                  <Table.Td>{item.updated_at ? new Date(item.updated_at).toLocaleDateString() : 'No date'}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
           </Table>
+        ) : (
+          <EmptyState title="No requests" description="There are no requests matching the current filters." />
         )}
       </Card>
     </>
